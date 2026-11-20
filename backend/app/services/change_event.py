@@ -11,6 +11,7 @@ from typing import Any
 
 from app.services.base import BaseModuleService
 from app.pipeline import pipeline_bus
+from app.store import store
 
 
 class ChangeEventService(BaseModuleService):
@@ -104,6 +105,32 @@ class ChangeEventService(BaseModuleService):
                 delta_val = {"field": key, "old": before.get(key), "new": after[key]}
                 changed.append(delta_val)
         return {"delta_fields": changed, "delta_count": len(changed)}
+
+    def replayable_event_set(self) -> list[dict[str, Any]]:
+        """可回放的源事件集合：保留 Binlog 坐标和前后镜像，供分发看板聚合目标覆盖。
+
+        只返回标记为 replayable 的事件，按事件ID稳定排序，保证同一批缺投
+        每次回放都拿到同一组源事件。
+        """
+        events: list[dict[str, Any]] = []
+        for row in sorted(store.rows(self.MODULE), key=lambda item: str(item.get("事件ID", ""))):
+            if not row.get("replayable"):
+                continue
+            events.append({
+                "event_id": str(row.get("事件ID", "")),
+                "source_db": str(row.get("source_db", "")),
+                "source_table": str(row.get("source_table", "")),
+                "operation": str(row.get("操作类型", "")),
+                "tx_id": str(row.get("事务ID", "")),
+                "event_time": str(row.get("事件时间", "")),
+                "binlog_file": str(row.get("binlog_file", "")),
+                "binlog_pos": int(row.get("binlog_pos", 0)),
+                "gtid": str(row.get("gtid", "")),
+                "before_image": str(row.get("变更前镜像", "")),
+                "after_image": str(row.get("变更后镜像", "")),
+                "replayable": True,
+            })
+        return events
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry, msg = super().run_action(entry_id, action)

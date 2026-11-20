@@ -131,6 +131,23 @@ class RouteDispatcherService(BaseModuleService):
             return {"found": True, "fallback": fallback["target"], "condition": fallback["condition"]}
         return {"found": False}
 
+    def coverage_dataset(self) -> dict[str, Any]:
+        """按冻结的初投目标聚合目标覆盖数据集。
+
+        路由规则只决定“后续事件该投给谁”；某条事件投给了谁、谁回了凭证，
+        一律以分发看板里冻结的 (源事件, 目标) 计划为准，改配不回写历史。
+        """
+        from app.services.dispatch_board import board
+
+        snapshot = board.snapshot()
+        return {
+            "targets": snapshot["targets"],
+            "coverage": snapshot["coverage"],
+            "missing": snapshot["missing"],
+            "source_events": snapshot["source_events"],
+            "summary": snapshot["summary"],
+        }
+
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry, msg = super().run_action(entry_id, action)
         if entry and action == "启用规则":

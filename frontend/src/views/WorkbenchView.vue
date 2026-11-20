@@ -6,6 +6,14 @@
         <p class="page-desc">{{ meta.desc }}</p>
       </div>
       <div class="page-actions">
+        <RouterLink
+          v-if="meta.key === 'route_dispatcher'"
+          class="btn"
+          data-testid="open-dispatch-board"
+          to="/dispatch_board"
+        >
+          打开分发看板
+        </RouterLink>
         <button class="btn primary" data-testid="open-create" type="button" @click="openCreate">
           登记{{ meta.entity }}
         </button>

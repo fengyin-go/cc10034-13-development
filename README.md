@@ -61,6 +61,7 @@ npm run dev
 | 缓慢变化维 | `scd_handler` | SCD配置 | 配置名称、维度表、SCD类型 |
 | 去重窗口 | `dedup_window` | 窗口配置 | 配置名称、去重键、窗口大小 |
 | 路由分发 | `route_dispatcher` | 路由规则 | 规则名称、匹配条件、目标通道 |
+| 分发看板 | `dispatch_board` | 目标覆盖 | 源事件、目标通道、接收状态 |
 | 回填位点 | `backfill_position` | 回填任务 | 任务名称、源位点、目标位点 |
 | 延迟监控 | `lag_monitor` | 延迟指标 | 指标时间、所属通道、延迟秒数 |
 | 快照比对 | `snapshot_compare` | 比对报告 | 报告名称、源表名、目标表名 |
@@ -68,6 +69,47 @@ npm run dev
 | 分区同步 | `partition_sync` | 同步配置 | 配置名称、源分区策略、目标分区策略 |
 | 审计轨迹 | `audit_trail` | 审计日志 | 审计时间、操作类型、目标对象 |
 | 故障切换 | `failover_group` | 切换组 | 组名、主通道、备用通道 |
+
+## 分发看板
+
+`/dispatch_board` 是路由分发的逐目标核对视图，数据由
+`backend/app/services/dispatch_board.py` 聚合：
+
+- **源事件集合**由变更事件服务提供（`ChangeEventService.replayable_event_set`），
+  保留 Binlog 文件/位点/GTID 和变更前后镜像，可按坐标回放。
+- **预期目标在初投时冻结**（`INITIAL_DISPATCH`）。之后 `route_dispatcher` 改配
+  只影响后续事件，看板用 `config_drift` 把“当前配置”和“冻结预期”并排展示，
+  已产生的收发证据不会被抹掉。
+- **接收凭证按 `(源事件, 目标)` 去重**。初投确认、迟到确认、补发确认并发到达时
+  只计一次完整接收，其余落回执流水并标记 `重复确认`。
+- **回放范围由领取清单决定**。`POST /api/dispatch_board/claims` 领取仍缺投的
+  `(事件, 目标)`；领取之后、重放之前到达的确认记为 `迟到确认`，把该目标移出本轮
+  重放，但不计入实际补发次数。
+
+相关接口（固定路径，注册在 `/api/{module}` 之前）：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/dispatch_board` | 整块看板：汇总、目标覆盖、缺投、领取单、回执、源事件 |
+| GET | `/api/dispatch_board/target-coverage` | 路由分发视角的目标覆盖数据集 |
+| GET | `/api/dispatch_board/source-events` | 可回放的源事件集合 |
+| GET | `/api/dispatch_board/missing` | 当前仍缺投的明细 |
+| POST | `/api/dispatch_board/receipts` | 登记接收凭证（幂等） |
+| POST | `/api/dispatch_board/claims` | 领取缺投目标，形成本轮重放范围 |
+| POST | `/api/dispatch_board/claims/{id}/replays` | 登记实际补发 |
+| POST | `/api/dispatch_board/route-config` | 改配演练，验证冻结预期不被改写 |
+| POST | `/api/dispatch_board/reset` | 恢复初投演示状态 |
+
+演示数据里 `shop.inventory_adjustments` 的同一条 UPDATE（`evt-inv-20261119-0001`）
+初投给 `warehouse-east` 与 `warehouse-west`；西侧回执默认缺失，用来演示
+“领取后、重放前到达的迟到确认”。
+
+## 测试
+
+```bash
+cd backend
+.venv/bin/python -m unittest discover -s tests -v
+```
 
 ## 约定
 
